@@ -75,6 +75,8 @@ table{border-collapse:collapse;width:100%}
 .rpe button.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 .sug{margin-top:6px;font-size:15px}
 .warm{margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.ramp ol{margin:6px 0 0;padding-left:20px}
+.ramp summary{font-size:15px}
 .wchip{font-size:14px;padding:3px 9px;border-radius:99px;border:1px dashed var(--line);color:var(--muted)}
 .sug b{font-family:var(--display);font-size:19px;letter-spacing:.01em}
 .note{font-size:14px;color:var(--muted)}
@@ -237,9 +239,22 @@ const HU_M=['január','február','március','április','május','június','júli
 const HU_D=['vasárnap','hétfő','kedd','szerda','csütörtök','péntek','szombat'];
 const hDate=s=>{const d=pd(s);return `${HU_M[d.getMonth()].slice(0,3)}. ${d.getDate()}., ${HU_D[d.getDay()]}`};
 const mondayOf=s=>{const d=pd(s);const k=(d.getDay()+6)%7;d.setDate(d.getDate()-k);return iso(d)};
-const WARM_DEF={bench:'50x8, 70x5, 85x3',hack:'50x8, 70x5, 85x3',incline:'50x8, 75x4',ohp:'50x8, 75x4',cgpull:'50x8, 75x4',wrow:'50x8, 75x4',rdl:'50x8, 75x4',legpress:'50x8, 75x4'};
-const warmOf=id=>{const v=(D().warm||{})[id];return v!=null?v:(WARM_DEF[id]||'')};
-function warmSets(id,w){return String(warmOf(id)).split(',').map(p=>p.trim().match(/^(\d+)\s*%?\s*[x×]\s*(\d+)$/i)).filter(Boolean).map(m=>({pct:+m[1],r:+m[2],w:w!=null?roundTo(w*m[1]/100,stepOf(id)):null}))}
+// Bemelegítés (terv.md): a gyakorlat napon belüli helye dönti el
+const COMPOUND=new Set(['bench','incline','ohp','cgpull','wrow','dbrow','sapull','hack','rdl','legpress']);
+const FAMILY={bench:'push',incline:'push',ohp:'push',lateral:'push',pec:'push',pushdown:'push',ohext:'push',
+  cgpull:'back',wrow:'back',dbrow:'back',sapull:'back',rdelt:'back',curl:'back',ccurl:'back',
+  hack:'quad',legpress:'quad',legext:'quad',rdl:'ham',legcurl:'ham',hyper:'lowback',calf:'calf',abs:'abs'};
+function warmDefault(day,id){
+  const list=(DAYS[day]||{ex:[]}).ex.map(x=>x[0]);const pos=list.indexOf(id);if(pos<0)return '';
+  const before=list.slice(0,pos);const warmed=new Set(before.map(x=>FAMILY[x]));
+  if(COMPOUND.has(id)){
+    if(!before.some(x=>COMPOUND.has(x)))return '50x8, 70x5, 85x2-3';
+    return warmed.has(FAMILY[id])?'70x4':'50x6, 75x3';
+  }
+  return warmed.has(FAMILY[id])?'':'50x10';
+}
+const warmOf=(id,day)=>{const v=(D().warm||{})[id];return v!=null&&String(v).trim()!==''?(String(v).trim()==='-'?'':v):warmDefault(day,id)};
+function warmSets(id,w,day){return String(warmOf(id,day)).split(',').map(p=>p.trim().match(/^(\d+)\s*%?\s*[x×]\s*(\d+(?:-\d+)?)$/i)).filter(Boolean).map(m=>({pct:+m[1],r:m[2],w:w!=null?roundTo(w*m[1]/100,stepOf(id)):null}))}
 const stepOf=id=>{const v=num(D().steps[id]);return v>0?v:EX[id].step};
 const e1rm=(w,r)=>w>0?w*(1+r/30):r; // Epley; testsúlyos gyakorlatnál az ismétlés a mérce
 const norm=s=>s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
@@ -361,7 +376,7 @@ function vToday(){
   const nd=ui.pick||nextDay(),day=DAYS[nd];
   const rows=day.ex.map(([id,n])=>{const ex=EX[id],g=suggest(id,n);
     const tag=g.kind==='up'?'<span class="chip up">+súly</span>':g.kind==='down'?'<span class="chip down">romlás</span>':g.kind==='stall'?'<span class="chip warn">áll</span>':'';
-    return `<tr><td>${esc(ex.n)} ${tag}<div class="note">${n}×${ex.lo}-${ex.hi} · ${fmt(Math.round(ex.rest/60*2)/2)} p pihenő${warmSets(id,g.w).length?' · bemelegítés':''}</div></td>
+    return `<tr><td>${esc(ex.n)} ${tag}<div class="note">${n}×${ex.lo}-${ex.hi} · ${fmt(Math.round(ex.rest/60*2)/2)} p pihenő${warmSets(id,g.w,nd).length?' · bemelegítés':''}</div></td>
       <td class="r num">${g.w==null?'<span class="muted">próba</span>':`<b>${fmt(g.w)}</b> kg`}<div class="note">${g.kind==='first'?'RPE 7-8':g.reps.join('/')}</div></td></tr>`}).join('');
   const warns=day.ex.map(([id,n])=>({id,g:suggest(id,n)})).filter(x=>x.g.kind==='down'||x.g.kind==='stall');
   return `${demoBar()}
@@ -380,6 +395,15 @@ function vToday(){
   </section>`;
 }
 
+// Első alkalom: az 1. munkaszett alapján igazítás (terv.md táblázat)
+function adjustHint(e,g){
+  if(g.kind!=='first')return '';const x=e.sets[0];if(!x||!x.done)return '';
+  const ex=EX[e.id],r=num(x.r),st=stepOf(e.id),rpe=e.rpe;let t,c;
+  if(r<ex.lo||(rpe!=null&&rpe>=9)){t=`Nehéz volt: következő szett -${fmt(st)} kg`;c='down'}
+  else if(r>ex.hi&&(rpe==null||rpe<=6)){t=`Könnyű volt: következő szett +${fmt(st)} kg`;c='up'}
+  else {t='Jó súly, marad';c='up'}
+  return `<div class="row" style="margin-top:8px"><span class="chip ${c}">1. szett</span><span class="small">${t}</span></div>`;
+}
 function vWorkout(){
   const a=D().active,day=DAYS[a.day];
   const mins=Math.round((Date.now()-a.ts)/6e4);
@@ -398,7 +422,13 @@ function vWorkout(){
       <div class="note">${e.planned}×${ex.lo}-${ex.hi} · ${fmt(Math.round(ex.rest/60*2)/2)} p · ${esc(ex.m)}${ex.tip?' · '+esc(ex.tip):''}</div>
       <div class="sug">${g.w==null?'<b>Próbasúly</b> RPE 7-8':`<b>${fmt(g.w)} kg</b> · cél ${g.reps.join('/')}`}</div>
       ${g.w!=null?`<div class="note">${esc(g.msg)}</div>`:''}
-      ${(ws=>ws.length?`<div class="warm"><span class="eyebrow">Bemelegítés</span>${ws.map(x=>`<span class="wchip num">${x.w!=null?fmt(x.w)+' kg':x.pct+'%'} × ${x.r}</span>`).join('')}</div>`:'')(warmSets(e.id,g.w))}
+      ${(ws=>ws.length?`<div class="warm"><span class="eyebrow">Bemelegítés</span>${ws.map(x=>`<span class="wchip num">${x.w!=null?fmt(x.w)+' kg':x.pct+'%'} × ${x.r}</span>`).join('')}<span class="note">${COMPOUND.has(e.id)?'1-1,5':'1'} p pihenő, RPE 6 alatt</span></div>`:'')(warmSets(e.id,g.w,a.day))}
+      ${g.w==null?`<details class="ramp"><summary>Kezdősúly keresése</summary><ol class="note">
+        <li>Nagyon könnyűvel kezdj (üres rúd / legkisebb fokozat), 8 ism.</li>
+        <li>Emelj szettenként (${['hack','rdl','legpress','legext','legcurl','calf'].includes(e.id)?'+10-20 kg':'+5-10 kg'}, gépen 1-2 fokozat), 3-5 ism., 1,5-2 p pihenő.</li>
+        <li>Ha a ${ex.lo} ism. már érezhetően nehéz, de 3+ maradna: ez a próbasúly.</li>
+        <li>Munkaszettek ezzel, RPE 7-8. Az első szett után az app jelzi, emelj vagy csökkents.</li></ol></details>`:''}
+      ${adjustHint(e,g)}
       <div class="sets ${e.sets.every(x=>x.done)?'':''}">
         <div class="h">#</div><div class="h">Előző</div><div class="h">kg</div><div class="h">ism</div><div></div>
         ${setRows}
@@ -521,7 +551,7 @@ function vStats(){
 
 function vSettings(){
   const steps=`<tr><th>Gyakorlat</th><th class="r">Lépcső</th><th class="r">Kezdősúly</th></tr>`+Object.keys(EX).map(id=>`<tr><td>${esc(EX[id].n)}</td><td class="r"><input class="inp num" style="width:68px;text-align:center" id="st-${id}" data-f="step" data-id="${id}" inputmode="decimal" value="${fmt(stepOf(id))}"></td><td class="r"><input class="inp num" style="width:72px;text-align:center" id="sw-${id}" data-f="start" data-id="${id}" inputmode="decimal" placeholder="–" value="${esc((D().start||{})[id]||'')}"></td></tr>`).join('');
-  const warms=Object.keys(EX).map(id=>`<tr><td>${esc(EX[id].n)}</td><td class="r"><input class="inp" style="width:150px" id="wu-${id}" data-f="warm" data-id="${id}" placeholder="nincs" value="${esc(warmOf(id))}"></td></tr>`).join('');
+  const warms=Object.keys(EX).map(id=>`<tr><td>${esc(EX[id].n)}</td><td class="r"><input class="inp" style="width:150px" id="wu-${id}" data-f="warm" data-id="${id}" placeholder="terv szerint" value="${esc((D().warm||{})[id]||'')}"></td></tr>`).join('');
   const prog=ORDER.map(d=>`<div><div class="row"><span class="badge d-${d}">${d}</span><b>${DAYS[d].n}</b><span class="muted small">${DAYS[d].dow}</span></div>
     <table class="tbl" style="margin-top:6px">${DAYS[d].ex.map(([id,n])=>`<tr><td>${esc(EX[id].n)}</td><td class="r num">${n}×${EX[id].lo}-${EX[id].hi}</td></tr>`).join('')}</table></div>`).join('');
   return `${demoBar()}<section class="stack"><h1>Beállítás</h1>
@@ -545,7 +575,7 @@ function vSettings(){
     </div>
     <div class="card stack"><div><h2>Súlylépcsők</h2><div class="note">Duplázó progresszió: ennyivel nő a súly, ha minden szett eléri a felső ismétlést 1-2 RIR-rel. Gépen állítsd a legkisebb lépcsőre.</div></div>
       <div class="scroll"><table class="tbl">${steps}</table></div><p class="note" style="margin:0">Kezdősúly: ha üres, az első alkalom próbasúly RPE 7-8-on.</p></div>
-    <div class="card stack"><div><h2>Bemelegítő szettek</h2><div class="note">A munkasúly %-a × ismétlés, vesszővel elválasztva, pl. 50x8, 70x5, 85x3. Üresen nincs bemelegítés.</div></div>
+    <div class="card stack"><div><h2>Bemelegítő szettek</h2><div class="note">Alapból a terv szerint, a gyakorlat napon belüli helye alapján (nap első összetett: 50%×8, 70%×5, 85%×2-3; ugyanaz az izom: 70%×4; új izom: 50%×6, 75%×3; új izom izoláció: 50%×10). Felülíráshoz írd be, pl. 50x8, 75x4; „-” = nincs.</div></div>
       <div class="scroll"><table class="tbl">${warms}</table></div></div>
     <div class="card stack"><h2>Program · 1. ciklus</h2><p class="note" style="margin:0">Kezdés: ${CYCLE_START.replace(/-/g,'. ')}. A gyakorlatok 16-20 hétig nem változnak; a D nap tartalma a havi felülvizsgálaton.</p>${prog}</div>
     <div class="card stack"><h2>Visszaállítás</h2>
@@ -593,7 +623,9 @@ function checkSet(i,j){
   if(isNaN(num(x.r))||num(x.r)<=0){const el=$(`#r-${i}-${j}`);el&&el.classList.add('err');el&&el.focus();return}
   x.done=true;
   // a következő üres szett örökli a súlyt
-  const nx=e.sets[j+1];if(nx&&nx.w==='')nx.w=x.w;
+  const nx=e.sets[j+1];if(nx&&nx.w===''){let nw=num(x.w);
+    if(g.kind==='first'&&j===0){const r=num(x.r),st=stepOf(e.id);if(r<ex.lo||(e.rpe!=null&&e.rpe>=9))nw=Math.max(0,nw-st);else if(r>ex.hi&&(e.rpe==null||e.rpe<=6))nw+=st}
+    nx.w=fmt(nw)}
   save();render();
   const more=e.sets.some(s=>!s.done)||a.ex.slice(i+1).some(f=>f.sets.some(s=>!s.done));
   if(more)startTimer(ex.rest,ex.n);

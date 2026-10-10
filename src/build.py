@@ -22,7 +22,7 @@ head='''<!doctype html>
 (site/'manifest.webmanifest').write_text('''{"name":"Vasnapló","short_name":"Vasnapló","lang":"hu","start_url":"./","scope":"./","display":"standalone","background_color":"#0e1419","theme_color":"#16212c",
 "icons":[{"src":"icon-192.png","sizes":"192x192","type":"image/png"},{"src":"icon-512.png","sizes":"512x512","type":"image/png","purpose":"any maskable"}]}
 ''')
-(site/'sw.js').write_text('''const C='vasnaplo-v2';
+(site/'sw.js').write_text('''const C='vasnaplo-v3';
 self.addEventListener('install',e=>{e.waitUntil(caches.open(C).then(c=>c.addAll(['./','index.html','manifest.webmanifest','icon-192.png','icon-512.png'])));self.skipWaiting()});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==C).map(k=>caches.delete(k)))));self.clients.claim()});
 self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;
